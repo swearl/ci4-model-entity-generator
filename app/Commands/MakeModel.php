@@ -3,7 +3,9 @@ namespace App\Commands;
 
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
+use CodeIgniter\CLI\Commands;
 use Exception;
+use Psr\Log\LoggerInterface;
 
 class MakeModel extends BaseCommand
 {
@@ -17,9 +19,26 @@ class MakeModel extends BaseCommand
      * @var \CodeIgniter\Database\BaseConnection
      */
     protected $db = null;
+
+    /**
+     * MakeModel Config
+     *
+     * @var \Config\MakeModel
+     */
+    protected $config = null;
     protected $options = [];
 
+    /**
+     * Model path
+     */
     const MODEL_PATH = APPPATH . "Models" . DIRECTORY_SEPARATOR;
+
+    public function __construct(LoggerInterface $logger, Commands $commands)
+    {
+        parent::__construct($logger, $commands);
+        $this->config = new \Config\MakeModel();
+        $this->db = db_connect();
+    }
 
     public function run(array $params)
     {
@@ -27,7 +46,6 @@ class MakeModel extends BaseCommand
             if (!is_writable(self::MODEL_PATH)) {
                 throw new Exception("Model path is not writable.");
             }
-            $this->db = db_connect();
             $this->options["table"] = trim(CLI::prompt("Input your table name"));
             if (!$this->db->tableExists($this->options["table"])) {
                 throw new Exception("Table not found.");
@@ -46,14 +64,25 @@ class MakeModel extends BaseCommand
         $this->options["model_name"] = ucfirst(camelize(singular($this->options["table"]))) . "Model";
         $this->options["model_file"] = self::MODEL_PATH . $this->options["model_name"] . ".php";
         $this->options["protected"] = [
-            "table" => $this->options["table"],
-            "primaryKey" => "id",
-            "useTimestamps" => true,
+            "table"          => $this->options["table"],
+            "primaryKey"     => $this->config->primaryKey,
+            "useTimestamps"  => $this->config->useTimestamps,
+            "useSoftDeletes" => $this->config->useSoftDeletes,
         ];
         $allowedFileds = $this->db->getFieldNames($this->options["table"]);
         $this->options["protected"]["allowedFields"] = array_filter($allowedFileds, function ($item) {
-            return !in_array($item, ["id", "created_at", "updated_at", "deleted_at"]);
+            return !in_array($item, $this->_filterAllowedFields());
         });
+    }
+
+    private function _filterAllowedFields()
+    {
+        return [
+            $this->config->primaryKey,
+            $this->config->createdField,
+            $this->config->updatedField,
+            $this->config->deletedField,
+        ];
     }
 
     private function _saveModel()
